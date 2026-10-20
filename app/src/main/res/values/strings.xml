@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hermes Phone</string>
+    <string name="channel_name">Hermes runtime</string>
+    <string name="channel_desc">Keeps the Hermes agent (proot) running</string>
+    <string name="notif_title">Hermes is running</string>
+    <string name="notif_setup">Preparing Hermes…</string>
+    <string name="status_checking">正在检查环境…</string>
+    <string name="btn_start">开始安装</string>
+    <string name="btn_retry">重试</string>
+    <string name="btn_open">打开 Hermes</string>
+    <string name="btn_pick_rootfs">选择本地 rootfs 包</string>
+    <string name="hint_rootfs_url">rootfs 下载地址</string>
+</resources>
