@@ -296,6 +296,8 @@ Install method: git
 | 9 | `hermes dashboard` 的 CHAT 其实是 PTY 里的 TUI（侧栏像 console） | 改用 **nesquena/hermes-webui**（原生 SSE 流式聊天），默认端口同为 8787，可直接替换 |
 | 10 | webui 在 tarball 安装下报 `Failed to fetch` / 版本 `unknown` | 用 Hermes 托管 Python 跑 `server.py`，装 **`pyyaml` + `cryptography`**；`v=unknown` 只影响更新提示，不影响聊天 |
 | 11 | App 内 WebView 输入全无反应（每 0.1s 重载一次首页） | WebView 会把 URL 补成结尾 `/`，而 webui 每个请求都打日志→`SetupState`→`render()`；用 `loadedWebUiUrl` 只加载一次 |
+| 12 | 内置 `assets/webui.tar.gz` 变成解压后的 `webui.tar`（AAPT 特殊处理 `.gz`） | 资源命名为 `webui-tar-gz`（无扩展名），AAPT 原样打包 |
+| 13 | `StatFs` 抛 `Invalid path` | 对尚不存在的目标文件建 `StatFs` 会失败；改传 `target.parentFile` |
 | 12 | composer/发送键被系统导航栏和输入法盖住 | targetSdk 35 edge-to-edge：`windowSoftInputMode=adjustResize` + root padding `max(nav, ime)` inset |
 
 ### 可用脚本（`/workspace/personal/android-hermes/scripts/`）
@@ -323,12 +325,19 @@ model.provider=deepseek, model.default=deepseek-chat
 **nesquena/hermes-webui**（Python + vanilla JS，无构建步骤），端口同为 8787：
 
 ```
-安装：下载 pinned tarball → 解压到 $BASE/webui（bind 到 /opt/hermes-webui）
-依赖：托管 Python（~/.hermes/tools/python-3.1*）+ pip install pyyaml cryptography
+安装：APK 内置 pinned tarball（assets/webui-tar-gz，21MB）→ 解压到 $BASE/webui
+      （bind 到 /opt/hermes-webui）；无内置包时才回退到 codeload 下载
+依赖：托管 Python（~/.hermes/tools/python-3.1*）+ pip install pyyaml（必需）
+      cryptography 仅 passkeys/OIDC 用，失败不影响聊天；pip 默认源失败自动切清华镜像
 启动：HERMES_HOME=/root/.hermes HERMES_WEBUI_AGENT_DIR=/root/.hermes/hermes-agent
       HERMES_WEBUI_PORT=8787 PYTHONPATH=/opt/hermes-webui python3 server.py
-回退：server.py 不存在时 run-hermes.sh 仍 exec hermes dashboard
+回退：server.py 不存在时 run-hermes.sh 仍 exec hermes dashboard；
+      但安装阶段 webui 失败会直接报错（不再静默回退），点「重试」只补装 webui
 ```
+
+内置 tarball 的原因：`codeload.github.com` 在国内经常超时，之前失败会被静默吞掉，
+导致装完直接进 dashboard。现在安装失败会在状态栏报错并保留重试按钮；已装好
+rootfs/Hermes 的设备升级 APK 后，启动时会自动补装 webui。
 
 VM 实证（App 内 WebView，不是浏览器）：
 - ✅ 原生聊天 UI（侧栏 WebUI sessions / CLI sessions、消息气泡、SSE 流式）

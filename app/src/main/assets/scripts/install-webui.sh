@@ -25,11 +25,22 @@ exec "$BASE/bin/proot" -0 -r "$BASE/rootfs" \
     P=$(ls -d /root/.hermes/tools/python-3.1*/bin/python3 2>/dev/null | sort -V | tail -1)
     [ -x "$P" ] || { echo "no managed python"; exit 2; }
 
-    # server.py needs PyYAML (+ cryptography for optional passkeys/local auth).
-    if ! "$P" -c "import yaml, cryptography" >/dev/null 2>&1; then
-      echo "installing webui python deps…"
-      "$P" -m pip install -q --disable-pip-version-check \
-        --root-user-action=ignore pyyaml cryptography || exit 3
+    # server.py needs PyYAML; cryptography is only for optional passkeys/OIDC.
+    pip_install() {
+      "$P" -m pip install -q --disable-pip-version-check --root-user-action=ignore \
+        --timeout 30 --retries 2 "$@" && return 0
+      echo "default index failed, retrying with Tsinghua mirror…"
+      "$P" -m pip install -q --disable-pip-version-check --root-user-action=ignore \
+        --timeout 30 --retries 2 -i https://pypi.tuna.tsinghua.edu.cn/simple "$@"
+    }
+
+    if ! "$P" -c "import yaml" >/dev/null 2>&1; then
+      echo "installing PyYAML…"
+      pip_install pyyaml || exit 3
+    fi
+    if ! "$P" -c "import cryptography" >/dev/null 2>&1; then
+      echo "installing cryptography (optional)…"
+      pip_install cryptography || echo "cryptography install failed (passkeys disabled)"
     fi
 
     mkdir -p /opt/hermes-webui

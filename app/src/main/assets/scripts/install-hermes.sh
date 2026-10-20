@@ -41,5 +41,7 @@ exec "$BASE/bin/proot" -0 -r "$BASE/rootfs" \
     apt-get -o APT::Sandbox::User=root install -y curl ca-certificates git || true
     dpkg --configure -a || true
 
-    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+    # Skip cua-driver: it needs X11 (libX11/libxcb) and is useless on Android;
+    # installing it only produces a shared-library error and wasted time.
+    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-computer-use
   '
