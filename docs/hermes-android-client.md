@@ -347,6 +347,15 @@ VM 实证（App 内 WebView，不是浏览器）：
 
 截图：`test/app-webui-vm.png`、`test/app-chat-vm.png`
 
+### 卸载 / 重置
+
+WebUI 右上角 `⋮`（或返回键）回到本地面板，点「卸载 / 重置」：
+
+- 停止 gateway/proot（遍历 `/proc` 按 cmdline 精确 kill；toybox 没有可靠 `pkill`），
+  再删除 `bin/lib/rootfs/tmp/scripts/webui` 与两个 marker；
+- 复选框可选是否同时删除 `~/.hermes`（会话/配置/API 密钥），默认保留；
+- 卸载在独立线程执行，不会排在 90s 健康检查后面；完成后状态回到 IDLE。
+
 > 注：tarball 没有 `.git`，顶部会显示 "Agent (origin/main): N updates available"，点 Later 即可；不影响功能。
 
 ### dashboard（旧方案，仅作回退）

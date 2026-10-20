@@ -11,6 +11,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -27,6 +28,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var loadedWebUiUrl: String? = null
+    private var installed = false
+    private var setupPanelPinned = false
 
     private val pickRootfs = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importRootfs(uri)
@@ -82,6 +85,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun bindActions() {
         binding.btnStart.setOnClickListener {
+            setupPanelPinned = false
             val url = binding.rootfsUrl.text.toString().trim()
                 .ifBlank { Constants.DEFAULT_ROOTFS_URL }
             HermesApp.prefs.edit().putString(Constants.PREF_ROOTFS_URL, url).apply()
@@ -96,19 +100,26 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnOpen.setOnClickListener {
+            setupPanelPinned = false
             val url = "http://127.0.0.1:${Constants.WEBUI_PORT}"
             showWebUi(url)
             ProotService.start(this, ProotService.ACTION_START)
         }
 
+        binding.btnUninstall.setOnClickListener { confirmUninstall() }
+        binding.btnMenu.setOnClickListener { showSetupPanel() }
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (binding.webview.visibility == android.view.View.VISIBLE && binding.webview.canGoBack()) {
-                    binding.webview.goBack()
-                } else {
+                if (binding.webview.visibility != android.view.View.VISIBLE) {
                     isEnabled = false
                     onBackPressedDispatcher.onBackPressed()
+                    return
                 }
+                // WebUI keeps its own history; going back inside it is easy to
+                // get stuck in. Back always returns to the local panel, where
+                // the user can reopen the WebUI or uninstall.
+                showSetupPanel()
             }
         })
     }
@@ -150,12 +161,70 @@ class MainActivity : AppCompatActivity() {
             if (state.phase == SetupState.Phase.ERROR) getString(R.string.btn_retry)
             else getString(R.string.btn_start)
 
-        if (state.ready) showWebUi("http://127.0.0.1:${Constants.WEBUI_PORT}")
+        if (state.phase == SetupState.Phase.IDLE && state.message == getString(R.string.uninstall_done)) {
+            installed = false
+        }
+        binding.btnUninstall.visibility =
+            if (installed) android.view.View.VISIBLE else android.view.View.GONE
+        binding.btnUninstall.isEnabled = state.phase != SetupState.Phase.DOWNLOADING &&
+            state.phase != SetupState.Phase.EXTRACTING &&
+            state.phase != SetupState.Phase.INSTALLING &&
+            state.phase != SetupState.Phase.VERIFYING &&
+            state.phase != SetupState.Phase.CHECKING
+
+        if (state.ready && !setupPanelPinned) {
+            installed = true
+            showWebUi("http://127.0.0.1:${Constants.WEBUI_PORT}")
+        }
+    }
+
+    private fun showSetupPanel() {
+        setupPanelPinned = true
+        loadedWebUiUrl = null
+        binding.webview.visibility = android.view.View.GONE
+        binding.btnMenu.visibility = android.view.View.GONE
+        binding.setupPanel.visibility = android.view.View.VISIBLE
+    }
+
+    /** Hardware/gesture back: leave the WebUI for the local panel first. */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK &&
+            binding.webview.visibility == android.view.View.VISIBLE
+        ) {
+            if (event.action == android.view.KeyEvent.ACTION_UP) showSetupPanel()
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun confirmUninstall() {
+        val check = android.widget.CheckBox(this).apply {
+            text = getString(R.string.uninstall_delete_data)
+            setPadding(48, 0, 48, 0)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.uninstall_title)
+            .setMessage(R.string.uninstall_message)
+            .setView(check)
+            .setPositiveButton(R.string.uninstall_confirm) { _, _ ->
+                startUninstall(check.isChecked)
+            }
+            .setNegativeButton(R.string.uninstall_cancel, null)
+            .show()
+    }
+
+    private fun startUninstall(deleteHome: Boolean) {
+        binding.btnUninstall.isEnabled = false
+        binding.btnStart.isEnabled = false
+        showSetupPanel()
+        SetupState.phase(SetupState.Phase.CHECKING, getString(R.string.uninstall_running))
+        ProotService.start(this, ProotService.ACTION_UNINSTALL, deleteHome = deleteHome)
     }
 
     private fun showWebUi(url: String) {
         binding.setupPanel.visibility = android.view.View.GONE
         binding.webview.visibility = android.view.View.VISIBLE
+        binding.btnMenu.visibility = android.view.View.VISIBLE
         // WebView normalizes "…:8787" to "…:8787/", so comparing against
         // getUrl() would reload on every state emission (and the WebUI logs
         // one line per request, which feeds straight back into setup state).
@@ -172,6 +241,7 @@ class MainActivity : AppCompatActivity() {
                 RootShell.isRootAvailable() && RootfsManager.isReadyQuick()
             }
             val webuiMissing = ready && withContext(Dispatchers.IO) { !RootfsManager.webuiReady() }
+            installed = ready
             if (ready && webuiMissing) {
                 // Upgrade path: rootfs+Hermes already present, only install the
                 // native WebUI (setup is idempotent and skips the other stages).

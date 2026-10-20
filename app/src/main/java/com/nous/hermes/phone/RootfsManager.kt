@@ -86,6 +86,45 @@ object RootfsManager {
         }
     }
 
+    /**
+     * Removes the installed runtime. [deleteHermesHome] also deletes sessions,
+     * config and API keys under ~/.hermes; otherwise that directory is kept so
+     * a reinstall keeps its state.
+     */
+    fun uninstall(context: Context, deleteHermesHome: Boolean) {
+        val targets = mutableListOf(
+            Constants.BIN_DIR, Constants.LIB_DIR, Constants.ROOTFS_DIR,
+            Constants.TMP_DIR, Constants.SCRIPTS_DIR, Constants.WEBUI_DIR,
+            Constants.ROOTFS_MARKER, Constants.HERMES_MARKER
+        )
+        if (deleteHermesHome) targets += Constants.HERMES_HOME
+        val quoted = targets.joinToString(" ") { ShellUtils.shellQuote(it) }
+
+        // toybox has no reliable pkill, so walk /proc and kill only processes
+        // whose cmdline points into our base dir. proot survives force-stop and
+        // would otherwise keep writing into the directories being deleted.
+        val cmd = buildString {
+            append("for p in /proc/[0-9]*; do [ -r \"\$p/cmdline\" ] || continue; ")
+            append("c=$(tr '\\0' ' ' < \"\$p/cmdline\" 2>/dev/null); ")
+            append("case \"\$c\" in ")
+            append("*${Constants.BASE_DIR}/bin/proot*|*${Constants.BASE_DIR}/scripts/${Constants.SCRIPT_RUN}*) ")
+            append("kill -9 \"\${p#/proc/}\" 2>/dev/null ;; esac; done; ")
+            append("sleep 1; rm -rf $quoted; ")
+            append("[ -e ${Constants.ROOTFS_DIR} ] && { sleep 1; rm -rf $quoted; }; echo done")
+        }
+        val r = RootShell.exec(cmd, 180_000)
+        if (!r.output.contains("done")) throw IllegalStateException("卸载失败: ${r.output.takeLast(300)}")
+
+        val files = context.filesDir
+        listOf(
+            Constants.ROOTFS_ARCHIVE, "${Constants.ROOTFS_ARCHIVE}.part",
+            "webui.tar.gz", "webui.tar.gz.part"
+        ).forEach { File(files, it).delete() }
+        listOf("proot-stage", "scripts-stage", "skills-stage").forEach {
+            File(files, it).deleteRecursively()
+        }
+    }
+
     // ---------------------------------------------------------------- proot
 
     fun ensureBaseDirs() {

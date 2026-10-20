@@ -34,6 +34,8 @@ object SetupState {
     fun ready(webuiUrl: String) =
         _state.update { it.copy(phase = Phase.READY, ready = true, message = webuiUrl, error = null) }
 
+    fun reset() = _state.update { UiState() }
+
     fun fail(message: String, error: Throwable? = null) {
         val detail = error?.message?.let { " ($it)" } ?: ""
         _state.update { it.copy(phase = Phase.ERROR, error = message + detail, message = message) }

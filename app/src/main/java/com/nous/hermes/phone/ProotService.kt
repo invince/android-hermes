@@ -33,6 +33,8 @@ class ProotService : Service() {
     @Volatile private var gatewayProcess: Process? = null
     @Volatile private var controlServer: ControlServer? = null
     @Volatile private var gatewayStarted = false
+    @Volatile private var healthGeneration = 0
+    @Volatile private var uninstalling = false
 
     override fun onCreate() {
         super.onCreate()
@@ -49,6 +51,11 @@ class ProotService : Service() {
                 worker.execute { runSetup(url) }
             }
             ACTION_START -> worker.execute { startGateway() }
+            ACTION_UNINSTALL -> {
+                val deleteHome = intent?.getBooleanExtra(EXTRA_DELETE_HOME, false) ?: false
+                // Do not queue behind the 90s health wait in `worker`.
+                Thread({ runUninstall(deleteHome) }, "hermes-uninstall").start()
+            }
             ACTION_STOP -> {
                 stopEverything()
                 stopSelf()
@@ -80,10 +87,31 @@ class ProotService : Service() {
         }
     }
 
+    private fun runUninstall(deleteHome: Boolean) {
+        uninstalling = true
+        try {
+            updateNotification(getString(R.string.uninstall_running), -1)
+            stopEverything()
+            RootfsManager.uninstall(applicationContext, deleteHome)
+            SetupState.reset()
+            SetupState.phase(SetupState.Phase.IDLE, getString(R.string.uninstall_done))
+        } catch (t: Throwable) {
+            Log.e(TAG, "uninstall failed", t)
+            SetupState.fail("卸载失败", t)
+        } finally {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+    }
+
     // ------------------------------------------------------------- gateway
 
     @Synchronized
     private fun startGateway() {
+        if (uninstalling) {
+            SetupState.appendLog("正在卸载，忽略启动请求")
+            return
+        }
         if (gatewayStarted) {
             SetupState.appendLog("gateway 已在运行")
             markReadyWhenHealthy()
@@ -130,9 +158,10 @@ class ProotService : Service() {
     }
 
     private fun markReadyWhenHealthy() {
+        val generation = ++healthGeneration
         worker.execute {
             val deadline = System.currentTimeMillis() + 90_000
-            while (System.currentTimeMillis() < deadline) {
+            while (System.currentTimeMillis() < deadline && generation == healthGeneration) {
                 if (webUiHealthy()) {
                     val url = "http://127.0.0.1:${Constants.WEBUI_PORT}"
                     SetupState.ready(url)
@@ -141,6 +170,7 @@ class ProotService : Service() {
                 }
                 Thread.sleep(1500)
             }
+            if (generation != healthGeneration) return@execute
             SetupState.fail("WebUI 超时未就绪")
             updateNotification("WebUI 超时未就绪", -1)
         }
@@ -161,6 +191,7 @@ class ProotService : Service() {
     }
 
     private fun stopEverything() {
+        healthGeneration++
         try { gatewayProcess?.destroy() } catch (_: Throwable) {}
         gatewayProcess = null
         gatewayStarted = false
@@ -209,11 +240,19 @@ class ProotService : Service() {
         const val ACTION_SETUP = "com.nous.hermes.phone.action.SETUP"
         const val ACTION_START = "com.nous.hermes.phone.action.START"
         const val ACTION_STOP = "com.nous.hermes.phone.action.STOP"
+        const val ACTION_UNINSTALL = "com.nous.hermes.phone.action.UNINSTALL"
         const val EXTRA_ROOTFS_URL = "rootfs_url"
+        const val EXTRA_DELETE_HOME = "delete_home"
 
-        fun start(context: Context, action: String, rootfsUrl: String? = null) {
+        fun start(
+            context: Context,
+            action: String,
+            rootfsUrl: String? = null,
+            deleteHome: Boolean = false
+        ) {
             val intent = Intent(context, ProotService::class.java).setAction(action)
             if (rootfsUrl != null) intent.putExtra(EXTRA_ROOTFS_URL, rootfsUrl)
+            if (deleteHome) intent.putExtra(EXTRA_DELETE_HOME, true)
             ContextCompat.startForegroundService(context, intent)
         }
     }
