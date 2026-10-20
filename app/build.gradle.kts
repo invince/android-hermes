@@ -12,13 +12,29 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // Populated by .github/workflows/release.yml from repository secrets.
+        // Falls back to the debug key when no keystore is provided (CI/local).
+        val keyStorePath = System.getenv("KEYSTORE_PATH")
+        if (keyStorePath != null && File(keyStorePath).isFile) {
+            create("release") {
+                storeFile = File(keyStorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
