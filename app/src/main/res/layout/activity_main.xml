@@ -44,12 +44,50 @@
                 android:layout_marginTop="12dp"
                 android:max="100" />
 
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/label_rootfs"
+                android:textSize="12sp" />
+
             <EditText
                 android:id="@+id/rootfsUrl"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
                 android:hint="@string/hint_rootfs_url"
+                android:inputType="textUri"
+                android:importantForAutofill="no"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_hermes"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/hermesUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/label_hermes"
+                android:inputType="textUri"
+                android:importantForAutofill="no"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_webui"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/webuiUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/label_webui"
                 android:inputType="textUri"
                 android:importantForAutofill="no"
                 android:textSize="13sp" />

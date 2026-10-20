@@ -29,6 +29,8 @@ object Constants {
     const val DEFAULT_ROOTFS_URL =
         "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz"
 
+    const val DEFAULT_HERMES_URL = "https://hermes-agent.nousresearch.com/install.sh"
+
     const val ROOTFS_ARCHIVE = "rootfs.tar.gz"
 
     const val SCRIPT_RUN = "run-hermes.sh"
@@ -38,6 +40,8 @@ object Constants {
 
     const val PREFS = "hermes_phone"
     const val PREF_ROOTFS_URL = "rootfs_url"
+    const val PREF_HERMES_URL = "hermes_url"
+    const val PREF_WEBUI_URL = "webui_url"
     const val PREF_AUTO_START = "auto_start"
 
     const val NOTIF_CHANNEL = "hermes_runtime"

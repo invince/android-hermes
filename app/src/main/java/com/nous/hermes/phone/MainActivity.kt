@@ -53,6 +53,12 @@ class MainActivity : AppCompatActivity() {
         binding.rootfsUrl.setText(
             HermesApp.prefs.getString(Constants.PREF_ROOTFS_URL, Constants.DEFAULT_ROOTFS_URL)
         )
+        binding.hermesUrl.setText(
+            HermesApp.prefs.getString(Constants.PREF_HERMES_URL, Constants.DEFAULT_HERMES_URL)
+        )
+        binding.webuiUrl.setText(
+            HermesApp.prefs.getString(Constants.PREF_WEBUI_URL, Constants.DEFAULT_WEBUI_URL)
+        )
 
         checkExistingInstall()
     }
@@ -88,7 +94,15 @@ class MainActivity : AppCompatActivity() {
             setupPanelPinned = false
             val url = binding.rootfsUrl.text.toString().trim()
                 .ifBlank { Constants.DEFAULT_ROOTFS_URL }
-            HermesApp.prefs.edit().putString(Constants.PREF_ROOTFS_URL, url).apply()
+            val hermesUrl = binding.hermesUrl.text.toString().trim()
+                .ifBlank { Constants.DEFAULT_HERMES_URL }
+            val webuiUrl = binding.webuiUrl.text.toString().trim()
+                .ifBlank { Constants.DEFAULT_WEBUI_URL }
+            HermesApp.prefs.edit()
+                .putString(Constants.PREF_ROOTFS_URL, url)
+                .putString(Constants.PREF_HERMES_URL, hermesUrl)
+                .putString(Constants.PREF_WEBUI_URL, webuiUrl)
+                .apply()
             requestIgnoreBatteryOptimizations()
             SetupState.phase(SetupState.Phase.CHECKING, "启动安装…")
             ProotService.start(this, ProotService.ACTION_SETUP, url)

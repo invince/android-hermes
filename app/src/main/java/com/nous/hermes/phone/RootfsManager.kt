@@ -25,7 +25,6 @@ import java.security.MessageDigest
  */
 object RootfsManager {
     private const val TAG = "RootfsManager"
-    private const val WEBUI_ASSET = "webui-tar-gz"
 
     fun stagedArchive(context: Context): File = File(context.filesDir, Constants.ROOTFS_ARCHIVE)
 
@@ -173,10 +172,14 @@ object RootfsManager {
             Constants.SCRIPT_VERIFY, Constants.SCRIPT_WEBUI
         )
         for (name in names) {
+            val hermesUrl = context.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
+                .getString(Constants.PREF_HERMES_URL, Constants.DEFAULT_HERMES_URL)
+                ?.ifBlank { Constants.DEFAULT_HERMES_URL } ?: Constants.DEFAULT_HERMES_URL
             val body = context.assets.open("scripts/$name").bufferedReader().use { it.readText() }
                 .replace("@BASE@", Constants.BASE_DIR)
                 .replace("@PORT@", Constants.WEBUI_PORT.toString())
                 .replace("@CONTROL_PORT@", Constants.CONTROL_PORT.toString())
+                .replace("@HERMES_INSTALL_URL@", hermesUrl)
             File(stage, name).writeText(body)
         }
 
@@ -340,20 +343,11 @@ object RootfsManager {
     private fun installWebui(context: Context) {
         try {
             val archive = File(context.filesDir, "webui.tar.gz")
-            if (!archive.isFile || archive.length() == 0L) {
-                // The tarball is bundled so installation works without GitHub
-                // access (codeload is frequently unreachable/slow in CN).
-                if (assetExists(context, WEBUI_ASSET)) {
-                    SetupState.phase(SetupState.Phase.INSTALLING, "使用内置 Hermes WebUI…", -1)
-                    context.assets.open(WEBUI_ASSET).use { input ->
-                        archive.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    SetupState.appendLog("已释放内置 WebUI（${archive.length() / 1_048_576} MB）")
-                } else {
-                    SetupState.phase(SetupState.Phase.DOWNLOADING, "下载 Hermes WebUI…", 0)
-                    downloadFile(Constants.DEFAULT_WEBUI_URL, archive, "Hermes WebUI", 300L * 1024 * 1024)
-                }
-            }
+            val url = context.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
+                .getString(Constants.PREF_WEBUI_URL, Constants.DEFAULT_WEBUI_URL)
+                ?.ifBlank { Constants.DEFAULT_WEBUI_URL } ?: Constants.DEFAULT_WEBUI_URL
+            SetupState.phase(SetupState.Phase.DOWNLOADING, "下载 Hermes WebUI…", 0)
+            downloadFile(url, archive, "Hermes WebUI", 300L * 1024 * 1024)
 
             val staged = "${Constants.TMP_DIR}/webui.tar.gz"
             val cp = RootShell.exec(
@@ -467,13 +461,6 @@ object RootfsManager {
             throw IOException("sha256 不匹配：$actual != $expected")
         }
         SetupState.appendLog("sha256 校验通过")
-    }
-
-    private fun assetExists(context: Context, name: String): Boolean = try {
-        context.assets.open(name).close()
-        true
-    } catch (_: IOException) {
-        false
     }
 
     private fun copyAsset(context: Context, assetPath: String, dest: File) {

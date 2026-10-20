@@ -43,5 +43,5 @@ exec "$BASE/bin/proot" -0 -r "$BASE/rootfs" \
 
     # Skip cua-driver: it needs X11 (libX11/libxcb) and is useless on Android;
     # installing it only produces a shared-library error and wasted time.
-    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-computer-use
+    curl -fsSL "@HERMES_INSTALL_URL@" | bash -s -- --skip-computer-use
   '
