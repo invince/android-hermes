@@ -2,8 +2,15 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
+      - "[0-9]*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach (e.g. 0.1.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -14,6 +21,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -42,13 +62,14 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew :app:assembleRelease --no-daemon --stacktrace \
-            -PversionName="${GITHUB_REF_NAME#v}"
+            -PversionName="${{ steps.tag.outputs.version }}"
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk "hermes-phone-${GITHUB_REF_NAME}.apk"
+        run: cp app/build/outputs/apk/release/app-release.apk "hermes-phone-${{ steps.tag.outputs.name }}.apk"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.name }}
           files: hermes-phone-*.apk
           generate_release_notes: true
