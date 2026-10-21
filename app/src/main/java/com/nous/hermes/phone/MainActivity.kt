@@ -1,12 +1,16 @@
 package com.nous.hermes.phone
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
@@ -31,6 +35,9 @@ class MainActivity : AppCompatActivity() {
     private var installed = false
     private var setupPanelPinned = false
 
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingAudioPermission: PermissionRequest? = null
+
     private val pickRootfs = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importRootfs(uri)
     }
@@ -38,6 +45,39 @@ class MainActivity : AppCompatActivity() {
     private val requestNotifications = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* best effort */ }
+
+    private val pickFiles = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val callback = fileChooserCallback ?: return@registerForActivityResult
+        fileChooserCallback = null
+        val uris = if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.let { data ->
+                val clip = data.clipData
+                if (clip != null && clip.itemCount > 0) {
+                    (0 until clip.itemCount).map { clip.getItemAt(it).uri }
+                } else if (data.data != null) {
+                    listOf(data.data!!)
+                } else {
+                    emptyList()
+                }
+            } ?: emptyList()
+        } else {
+            emptyList()
+        }
+        callback.onReceiveValue(uris.takeIf { it.isNotEmpty() }?.toTypedArray())
+    }
+
+    private val requestAudioPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val request = pendingAudioPermission
+        pendingAudioPermission = null
+        if (request == null) return@registerForActivityResult
+        if (granted) {
+            request.grant(request.resources)
+        } else {
+            request.deny()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,8 +125,68 @@ class MainActivity : AppCompatActivity() {
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
+            // Server-side TTS / completion sounds play from fetched blobs and
+            // would otherwise stay muted until the user taps again.
+            mediaPlaybackRequiresUserGesture = false
         }
         binding.webview.webViewClient = WebViewClient()
+        binding.webview.webChromeClient = object : WebChromeClient() {
+            /**
+             * Without this, a bare <input type="file"> in the WebUI does
+             * nothing when tapped (attachments, voice-note upload).
+             */
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: WebChromeClient.FileChooserParams?
+            ): Boolean {
+                fileChooserCallback?.onReceiveValue(null)
+                fileChooserCallback = filePathCallback
+
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    val mimeTypes = fileChooserParams?.acceptTypes
+                        ?.filter { it.isNotBlank() && it != "*/*" && "/" in it }
+                        .orEmpty()
+                    if (mimeTypes.isNotEmpty()) putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toTypedArray())
+                    if (fileChooserParams?.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }
+                }
+                return try {
+                    pickFiles.launch(intent)
+                    true
+                } catch (_: Throwable) {
+                    fileChooserCallback = null
+                    filePathCallback?.onReceiveValue(null)
+                    false
+                }
+            }
+
+            /**
+             * Voice input uses getUserMedia/MediaRecorder inside the WebUI.
+             * Grant the page's audio-capture request once the Android runtime
+             * permission is held.
+             */
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                if (request == null) return
+                if (PermissionRequest.RESOURCE_AUDIO_CAPTURE !in request.resources) {
+                    request.deny()
+                    return
+                }
+                if (ContextCompat.checkSelfPermission(
+                        this@MainActivity, Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                    return
+                }
+                pendingAudioPermission?.deny()
+                pendingAudioPermission = request
+                requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
     }
 
     private fun bindActions() {
