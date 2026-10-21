@@ -355,9 +355,16 @@ VM 实证（App 内 WebView，不是浏览器）：
 
 值保存在 `shared_prefs/hermes_phone.xml`（`rootfs_url`/`hermes_url`/`webui_url`），重装/升级 APK 后仍生效；点「卸载 / 重置」不清除。Hermes 脚本 URL 在安装前替换进 `scripts/install-hermes.sh` 的 `@HERMES_INSTALL_URL@` 占位符。
 
-### 卸载 / 重置
+### 更新
 
-WebUI 右上角 `⋮`（或返回键）回到本地面板，点「卸载 / 重置」：
+已安装时面板显示「更新 Hermes」「更新 WebUI」：先停 gateway，
+再分别重跑 `install.sh`（apt + 官方安装器）或重新下载 pinned WebUI 包并重装依赖，
+完成后自动拉起；失败会保留错误信息和按钮，可重复点。
+
+### 回到面板 / 卸载
+
+WebUI **右侧中部**的 `⋮`（或返回键）回到本地面板；面板上的「打开 HERMES」回到 WebUI。
+（`⋮` 不放右上角，避免和 WebUI 自己的刷新键重叠。）点「卸载 / 重置」：
 
 - 停止 gateway/proot（遍历 `/proc` 按 cmdline 精确 kill；toybox 没有可靠 `pkill`），
   再删除 `bin/lib/rootfs/tmp/scripts/webui` 与两个 marker；

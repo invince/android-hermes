@@ -85,6 +85,35 @@ object RootfsManager {
         }
     }
 
+    /** Re-runs the official installer to upgrade the Hermes agent in place. */
+    fun updateHermes(context: Context) {
+        if (!RootShell.isRootAvailable()) {
+            throw IllegalStateException("未获得 root：请授予 su 权限（Magisk/超级用户）")
+        }
+        ensureBaseDirs()
+        installProotAssets(context)
+        installScripts(context)
+
+        SetupState.phase(SetupState.Phase.INSTALLING, "更新 Hermes（install.sh）…", -1)
+        val rc = runScriptStreaming(scriptPath(Constants.SCRIPT_INSTALL))
+        if (rc != 0) throw IllegalStateException("Hermes 更新脚本退出码 $rc")
+
+        SetupState.phase(SetupState.Phase.VERIFYING, "校验 Hermes…", -1)
+        if (!verifyHermes()) throw IllegalStateException("hermes --version 校验失败")
+        mark(Constants.HERMES_MARKER)
+        SetupState.appendLog("Hermes 已更新")
+    }
+
+    /** Re-downloads the configured WebUI tarball and replaces the installed copy. */
+    fun updateWebui(context: Context) {
+        if (!RootShell.isRootAvailable()) {
+            throw IllegalStateException("未获得 root：请授予 su 权限（Magisk/超级用户）")
+        }
+        ensureBaseDirs()
+        installScripts(context)
+        installWebui(context)
+    }
+
     /**
      * Removes the installed runtime. [deleteHermesHome] also deletes sessions,
      * config and API keys under ~/.hermes; otherwise that directory is kept so

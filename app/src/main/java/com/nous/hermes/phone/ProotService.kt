@@ -51,6 +51,8 @@ class ProotService : Service() {
                 worker.execute { runSetup(url) }
             }
             ACTION_START -> worker.execute { startGateway() }
+            ACTION_UPDATE_HERMES -> worker.execute { runUpdate(hermes = true) }
+            ACTION_UPDATE_WEBUI -> worker.execute { runUpdate(hermes = false) }
             ACTION_UNINSTALL -> {
                 val deleteHome = intent?.getBooleanExtra(EXTRA_DELETE_HOME, false) ?: false
                 // Do not queue behind the 90s health wait in `worker`.
@@ -84,6 +86,25 @@ class ProotService : Service() {
             Log.e(TAG, "setup failed", t)
             SetupState.fail("安装失败", t)
             updateNotification("安装失败：${t.message}", -1)
+        }
+    }
+
+    private fun runUpdate(hermes: Boolean) {
+        val what = if (hermes) "Hermes" else "WebUI"
+        try {
+            updateNotification(getString(R.string.notif_update, what), -1)
+            SetupState.phase(SetupState.Phase.CHECKING, "停止 $what 以更新…")
+            stopEverything()
+            if (hermes) {
+                RootfsManager.updateHermes(applicationContext)
+            } else {
+                RootfsManager.updateWebui(applicationContext)
+            }
+            startGateway()
+        } catch (t: Throwable) {
+            Log.e(TAG, "update $what failed", t)
+            SetupState.fail("$what 更新失败", t)
+            updateNotification("$what 更新失败：${t.message}", -1)
         }
     }
 
@@ -240,6 +261,8 @@ class ProotService : Service() {
         const val ACTION_SETUP = "com.nous.hermes.phone.action.SETUP"
         const val ACTION_START = "com.nous.hermes.phone.action.START"
         const val ACTION_STOP = "com.nous.hermes.phone.action.STOP"
+        const val ACTION_UPDATE_HERMES = "com.nous.hermes.phone.action.UPDATE_HERMES"
+        const val ACTION_UPDATE_WEBUI = "com.nous.hermes.phone.action.UPDATE_WEBUI"
         const val ACTION_UNINSTALL = "com.nous.hermes.phone.action.UNINSTALL"
         const val EXTRA_ROOTFS_URL = "rootfs_url"
         const val EXTRA_DELETE_HOME = "delete_home"

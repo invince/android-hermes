@@ -5,6 +5,7 @@
     <string name="channel_desc">Keeps the Hermes agent (proot) running</string>
     <string name="notif_title">Hermes is running</string>
     <string name="notif_setup">Preparing Hermes…</string>
+    <string name="notif_update">Updating %1$s…</string>
     <string name="status_checking">正在检查环境…</string>
     <string name="btn_start">开始安装</string>
     <string name="btn_retry">重试</string>
@@ -14,6 +15,10 @@
     <string name="label_rootfs">1. rootfs 地址（Ubuntu base tar.gz）</string>
     <string name="label_hermes">2. Hermes 安装脚本 URL</string>
     <string name="label_webui">3. Hermes WebUI 包 URL（tar.gz）</string>
+    <string name="btn_update_hermes">更新 Hermes</string>
+    <string name="btn_update_webui">更新 WebUI</string>
+    <string name="update_title">更新 %1$s</string>
+    <string name="update_message">将先停止 Hermes，更新完成后自动重启。继续？</string>
     <string name="btn_uninstall">卸载 / 重置</string>
     <string name="uninstall_title">卸载 Hermes Phone</string>
     <string name="uninstall_message">将删除 rootfs、Hermes 和 WebUI。是否同时删除会话、配置与 API 密钥（~/.hermes）？</string>

@@ -120,6 +120,8 @@ class MainActivity : AppCompatActivity() {
             ProotService.start(this, ProotService.ACTION_START)
         }
 
+        binding.btnUpdateHermes.setOnClickListener { confirmUpdate(hermes = true) }
+        binding.btnUpdateWebui.setOnClickListener { confirmUpdate(hermes = false) }
         binding.btnUninstall.setOnClickListener { confirmUninstall() }
         binding.btnMenu.setOnClickListener { showSetupPanel() }
 
@@ -167,10 +169,13 @@ class MainActivity : AppCompatActivity() {
                     android.view.View.INVISIBLE else android.view.View.VISIBLE
         }
 
-        binding.btnStart.isEnabled = state.phase != SetupState.Phase.DOWNLOADING &&
-            state.phase != SetupState.Phase.EXTRACTING &&
-            state.phase != SetupState.Phase.INSTALLING &&
-            state.phase != SetupState.Phase.STARTING
+        val busy = state.phase == SetupState.Phase.CHECKING ||
+            state.phase == SetupState.Phase.DOWNLOADING ||
+            state.phase == SetupState.Phase.EXTRACTING ||
+            state.phase == SetupState.Phase.INSTALLING ||
+            state.phase == SetupState.Phase.VERIFYING ||
+            state.phase == SetupState.Phase.STARTING
+        binding.btnStart.isEnabled = !busy
         binding.btnStart.text =
             if (state.phase == SetupState.Phase.ERROR) getString(R.string.btn_retry)
             else getString(R.string.btn_start)
@@ -178,13 +183,15 @@ class MainActivity : AppCompatActivity() {
         if (state.phase == SetupState.Phase.IDLE && state.message == getString(R.string.uninstall_done)) {
             installed = false
         }
-        binding.btnUninstall.visibility =
+        val installedVisibility =
             if (installed) android.view.View.VISIBLE else android.view.View.GONE
-        binding.btnUninstall.isEnabled = state.phase != SetupState.Phase.DOWNLOADING &&
-            state.phase != SetupState.Phase.EXTRACTING &&
-            state.phase != SetupState.Phase.INSTALLING &&
-            state.phase != SetupState.Phase.VERIFYING &&
-            state.phase != SetupState.Phase.CHECKING
+        binding.btnOpen.visibility = installedVisibility
+        binding.btnUpdateHermes.visibility = installedVisibility
+        binding.btnUpdateWebui.visibility = installedVisibility
+        binding.btnUpdateHermes.isEnabled = !busy
+        binding.btnUpdateWebui.isEnabled = !busy
+        binding.btnUninstall.visibility = installedVisibility
+        binding.btnUninstall.isEnabled = !busy
 
         if (state.ready && !setupPanelPinned) {
             installed = true
@@ -194,7 +201,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSetupPanel() {
         setupPanelPinned = true
-        loadedWebUiUrl = null
         binding.webview.visibility = android.view.View.GONE
         binding.btnMenu.visibility = android.view.View.GONE
         binding.setupPanel.visibility = android.view.View.VISIBLE
@@ -209,6 +215,25 @@ class MainActivity : AppCompatActivity() {
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private fun confirmUpdate(hermes: Boolean) {
+        val what = if (hermes) "Hermes" else "WebUI"
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.update_title, what))
+            .setMessage(R.string.update_message)
+            .setPositiveButton(android.R.string.ok) { _, _ -> startUpdate(hermes) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun startUpdate(hermes: Boolean) {
+        showSetupPanel()
+        SetupState.phase(SetupState.Phase.CHECKING, "准备更新 ${if (hermes) "Hermes" else "WebUI"}…")
+        ProotService.start(
+            this,
+            if (hermes) ProotService.ACTION_UPDATE_HERMES else ProotService.ACTION_UPDATE_WEBUI
+        )
     }
 
     private fun confirmUninstall() {
@@ -228,6 +253,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startUninstall(deleteHome: Boolean) {
+        loadedWebUiUrl = null
         binding.btnUninstall.isEnabled = false
         binding.btnStart.isEnabled = false
         showSetupPanel()
