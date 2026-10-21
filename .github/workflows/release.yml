@@ -72,4 +72,5 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           files: hermes-phone-*.apk
+          overwrite_files: true
           generate_release_notes: true

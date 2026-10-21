@@ -2,6 +2,8 @@
 
 Run [Hermes Agent](https://github.com/NousResearch/hermes-agent) entirely inside an Android app — no Termux, no real chroot, no ADB.
 
+> This project is only an integration: proot + Hermes + hermes-webui, plus an install/control UI around them. No changes are made to Hermes itself, and no other original development is included.
+
 The app downloads an Ubuntu arm64 rootfs, boots Hermes inside [proot](https://proot-me.github.io/), and shows the native [hermes-webui](https://github.com/nesquena/hermes-webui) chat interface in a WebView. Everything lives under `/data/local/hermes` and runs in the foreground so Android does not kill it.
 
 ## Features
