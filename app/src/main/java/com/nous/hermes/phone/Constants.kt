@@ -37,6 +37,7 @@ object Constants {
     const val SCRIPT_INSTALL = "install-hermes.sh"
     const val SCRIPT_VERIFY = "verify-hermes.sh"
     const val SCRIPT_WEBUI = "install-webui.sh"
+    const val SCRIPT_DOCTOR = "hermes-doctor.sh"
 
     const val PREFS = "hermes_phone"
     const val PREF_ROOTFS_URL = "rootfs_url"

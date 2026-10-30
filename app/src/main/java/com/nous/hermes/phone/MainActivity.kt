@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var loadedWebUiUrl: String? = null
     private var installed = false
+    private var doctorAvailable = false
     private var setupPanelPinned = false
 
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
@@ -204,7 +205,7 @@ class MainActivity : AppCompatActivity() {
                 .putString(Constants.PREF_WEBUI_URL, webuiUrl)
                 .apply()
             requestIgnoreBatteryOptimizations()
-            SetupState.phase(SetupState.Phase.CHECKING, "启动安装…")
+            SetupState.phase(SetupState.Phase.CHECKING, "Starting install…")
             ProotService.start(this, ProotService.ACTION_SETUP, url)
             binding.btnStart.isEnabled = false
         }
@@ -222,6 +223,11 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnUpdateHermes.setOnClickListener { confirmUpdate(hermes = true) }
         binding.btnUpdateWebui.setOnClickListener { confirmUpdate(hermes = false) }
+        binding.btnTerminal.setOnClickListener {
+            startActivity(Intent(this, TerminalActivity::class.java))
+        }
+        binding.btnDoctor.setOnClickListener { confirmDoctor(fix = false) }
+        binding.btnDoctorFix.setOnClickListener { confirmDoctor(fix = true) }
         binding.btnUninstall.setOnClickListener { confirmUninstall() }
         binding.btnMenu.setOnClickListener { showSetupPanel() }
 
@@ -252,7 +258,7 @@ class MainActivity : AppCompatActivity() {
         val label = buildString {
             append(state.phase.name)
             if (state.message.isNotBlank()) append(" · ").append(state.message)
-            if (state.error != null) append("\n错误: ").append(state.error)
+            if (state.error != null) append("\nError: ").append(state.error)
         }
         binding.statusText.text = label
         binding.logText.text = state.log
@@ -290,6 +296,13 @@ class MainActivity : AppCompatActivity() {
         binding.btnUpdateWebui.visibility = installedVisibility
         binding.btnUpdateHermes.isEnabled = !busy
         binding.btnUpdateWebui.isEnabled = !busy
+        val doctorVisibility =
+            if (doctorAvailable) android.view.View.VISIBLE else android.view.View.GONE
+        binding.btnTerminal.visibility = doctorVisibility
+        binding.btnDoctor.visibility = doctorVisibility
+        binding.btnDoctorFix.visibility = doctorVisibility
+        binding.btnDoctor.isEnabled = !busy
+        binding.btnDoctorFix.isEnabled = !busy
         binding.btnUninstall.visibility = installedVisibility
         binding.btnUninstall.isEnabled = !busy
 
@@ -329,11 +342,29 @@ class MainActivity : AppCompatActivity() {
 
     private fun startUpdate(hermes: Boolean) {
         showSetupPanel()
-        SetupState.phase(SetupState.Phase.CHECKING, "准备更新 ${if (hermes) "Hermes" else "WebUI"}…")
+        SetupState.phase(SetupState.Phase.CHECKING, "Preparing to update ${if (hermes) "Hermes" else "WebUI"}…")
         ProotService.start(
             this,
             if (hermes) ProotService.ACTION_UPDATE_HERMES else ProotService.ACTION_UPDATE_WEBUI
         )
+    }
+
+    private fun confirmDoctor(fix: Boolean) {
+        AlertDialog.Builder(this)
+            .setTitle(if (fix) R.string.doctor_fix_title else R.string.doctor_title)
+            .setMessage(if (fix) R.string.doctor_fix_message else R.string.doctor_message)
+            .setPositiveButton(android.R.string.ok) { _, _ -> startDoctor(fix) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun startDoctor(fix: Boolean) {
+        showSetupPanel()
+        SetupState.phase(
+            SetupState.Phase.CHECKING,
+            if (fix) "Preparing to run hermes doctor --fix…" else "Preparing to run hermes doctor…"
+        )
+        ProotService.start(this, ProotService.ACTION_DOCTOR, fix = fix)
     }
 
     private fun confirmUninstall() {
@@ -377,23 +408,27 @@ class MainActivity : AppCompatActivity() {
     private fun checkExistingInstall() {
         binding.btnStart.isEnabled = false
         lifecycleScope.launch {
-            val ready = withContext(Dispatchers.IO) {
-                RootShell.isRootAvailable() && RootfsManager.isReadyQuick()
+            val (ready, rootfsPresent) = withContext(Dispatchers.IO) {
+                val root = RootShell.isRootAvailable()
+                val ready = root && RootfsManager.isReadyQuick()
+                val rootfsPresent = ready || (root && RootfsManager.rootfsReady())
+                ready to rootfsPresent
             }
             val webuiMissing = ready && withContext(Dispatchers.IO) { !RootfsManager.webuiReady() }
             installed = ready
+            doctorAvailable = rootfsPresent
             if (ready && webuiMissing) {
                 // Upgrade path: rootfs+Hermes already present, only install the
                 // native WebUI (setup is idempotent and skips the other stages).
                 val url = HermesApp.prefs.getString(Constants.PREF_ROOTFS_URL, Constants.DEFAULT_ROOTFS_URL)
                     ?: Constants.DEFAULT_ROOTFS_URL
-                SetupState.phase(SetupState.Phase.CHECKING, "安装 Hermes WebUI…")
+                SetupState.phase(SetupState.Phase.CHECKING, "Installing Hermes WebUI…")
                 ProotService.start(this@MainActivity, ProotService.ACTION_SETUP, url)
             } else if (ready) {
-                SetupState.phase(SetupState.Phase.STARTING, "Hermes 已安装，启动中…")
+                SetupState.phase(SetupState.Phase.STARTING, "Hermes installed, starting…")
                 ProotService.start(this@MainActivity, ProotService.ACTION_START)
             } else {
-                SetupState.phase(SetupState.Phase.IDLE, "尚未安装，点击下方开始")
+                SetupState.phase(SetupState.Phase.IDLE, "Not installed. Tap below to start.")
                 binding.btnStart.isEnabled = true
             }
         }
@@ -404,10 +439,10 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) { RootfsManager.importRootfsFromUri(this@MainActivity, uri) }
-                SetupState.phase(SetupState.Phase.IDLE, "rootfs 已导入，点击开始安装")
+                SetupState.phase(SetupState.Phase.IDLE, "rootfs imported. Tap to start install.")
                 binding.btnStart.isEnabled = true
             } catch (t: Throwable) {
-                SetupState.fail("导入失败", t)
+                SetupState.fail("Import failed", t)
             }
         }
     }

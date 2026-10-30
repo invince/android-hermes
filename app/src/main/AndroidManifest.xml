@@ -38,6 +38,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".TerminalActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:label="@string/terminal_title"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".ProotService"
             android:exported="false"

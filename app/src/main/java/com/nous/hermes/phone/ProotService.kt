@@ -53,6 +53,10 @@ class ProotService : Service() {
             ACTION_START -> worker.execute { startGateway() }
             ACTION_UPDATE_HERMES -> worker.execute { runUpdate(hermes = true) }
             ACTION_UPDATE_WEBUI -> worker.execute { runUpdate(hermes = false) }
+            ACTION_DOCTOR -> {
+                val fix = intent?.getBooleanExtra(EXTRA_FIX, false) ?: false
+                worker.execute { runDoctor(fix) }
+            }
             ACTION_UNINSTALL -> {
                 val deleteHome = intent?.getBooleanExtra(EXTRA_DELETE_HOME, false) ?: false
                 // Do not queue behind the 90s health wait in `worker`.
@@ -84,8 +88,8 @@ class ProotService : Service() {
             startGateway()
         } catch (t: Throwable) {
             Log.e(TAG, "setup failed", t)
-            SetupState.fail("安装失败", t)
-            updateNotification("安装失败：${t.message}", -1)
+            SetupState.fail("Install failed", t)
+            updateNotification("Install failed: ${t.message}", -1)
         }
     }
 
@@ -93,7 +97,7 @@ class ProotService : Service() {
         val what = if (hermes) "Hermes" else "WebUI"
         try {
             updateNotification(getString(R.string.notif_update, what), -1)
-            SetupState.phase(SetupState.Phase.CHECKING, "停止 $what 以更新…")
+            SetupState.phase(SetupState.Phase.CHECKING, "Stopping $what for update…")
             stopEverything()
             if (hermes) {
                 RootfsManager.updateHermes(applicationContext)
@@ -103,8 +107,23 @@ class ProotService : Service() {
             startGateway()
         } catch (t: Throwable) {
             Log.e(TAG, "update $what failed", t)
-            SetupState.fail("$what 更新失败", t)
-            updateNotification("$what 更新失败：${t.message}", -1)
+            SetupState.fail("$what update failed", t)
+            updateNotification("$what update failed: ${t.message}", -1)
+        }
+    }
+
+    private fun runDoctor(fix: Boolean) {
+        try {
+            updateNotification(if (fix) "Running hermes doctor --fix…" else "Running hermes doctor…", -1)
+            RootfsManager.runDoctor(applicationContext, fix)
+            if (fix) {
+                // Repairs (symlinks, config) may need the runtime restarted.
+                startGateway()
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "doctor failed", t)
+            SetupState.fail("Doctor run failed", t)
+            updateNotification("Doctor run failed: ${t.message}", -1)
         }
     }
 
@@ -118,7 +137,7 @@ class ProotService : Service() {
             SetupState.phase(SetupState.Phase.IDLE, getString(R.string.uninstall_done))
         } catch (t: Throwable) {
             Log.e(TAG, "uninstall failed", t)
-            SetupState.fail("卸载失败", t)
+            SetupState.fail("Uninstall failed", t)
         } finally {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -130,17 +149,17 @@ class ProotService : Service() {
     @Synchronized
     private fun startGateway() {
         if (uninstalling) {
-            SetupState.appendLog("正在卸载，忽略启动请求")
+            SetupState.appendLog("Uninstalling, ignoring start request")
             return
         }
         if (gatewayStarted) {
-            SetupState.appendLog("gateway 已在运行")
+            SetupState.appendLog("gateway already running")
             markReadyWhenHealthy()
             return
         }
         try {
             if (!RootfsManager.isReadyQuick()) {
-                throw IllegalStateException("Hermes 未安装完成，无法启动")
+                throw IllegalStateException("Hermes is not fully installed; cannot start")
             }
             // Refresh launcher scripts after an app update (cheap, idempotent).
             try { RootfsManager.installScripts(applicationContext) } catch (t: Throwable) {
@@ -150,7 +169,7 @@ class ProotService : Service() {
             controlServer = ControlServer(Constants.CONTROL_PORT, token).also { it.start() }
 
             val script = "${Constants.SCRIPTS_DIR}/${Constants.SCRIPT_RUN}"
-            SetupState.phase(SetupState.Phase.STARTING, "启动 Hermes…", -1)
+            SetupState.phase(SetupState.Phase.STARTING, "Starting Hermes…", -1)
             val process = ProcessBuilder("su", "-c", "sh ${ShellUtils.shellQuote(script)}")
                 .redirectErrorStream(true)
                 .start()
@@ -166,15 +185,15 @@ class ProotService : Service() {
                 } catch (t: Throwable) {
                     Log.w(TAG, "gateway output ended: ${t.message}")
                 }
-                SetupState.appendLog("gateway 进程结束")
+                SetupState.appendLog("gateway process exited")
                 gatewayStarted = false
             }, "hermes-gateway-log").apply { isDaemon = true }.start()
 
             markReadyWhenHealthy()
         } catch (t: Throwable) {
             Log.e(TAG, "gateway start failed", t)
-            SetupState.fail("启动失败", t)
-            updateNotification("启动失败：${t.message}", -1)
+            SetupState.fail("Start failed", t)
+            updateNotification("Start failed: ${t.message}", -1)
         }
     }
 
@@ -192,8 +211,8 @@ class ProotService : Service() {
                 Thread.sleep(1500)
             }
             if (generation != healthGeneration) return@execute
-            SetupState.fail("WebUI 超时未就绪")
-            updateNotification("WebUI 超时未就绪", -1)
+            SetupState.fail("WebUI did not become ready in time")
+            updateNotification("WebUI did not become ready in time", -1)
         }
     }
 
@@ -264,18 +283,22 @@ class ProotService : Service() {
         const val ACTION_UPDATE_HERMES = "com.nous.hermes.phone.action.UPDATE_HERMES"
         const val ACTION_UPDATE_WEBUI = "com.nous.hermes.phone.action.UPDATE_WEBUI"
         const val ACTION_UNINSTALL = "com.nous.hermes.phone.action.UNINSTALL"
+        const val ACTION_DOCTOR = "com.nous.hermes.phone.action.DOCTOR"
         const val EXTRA_ROOTFS_URL = "rootfs_url"
         const val EXTRA_DELETE_HOME = "delete_home"
+        const val EXTRA_FIX = "fix"
 
         fun start(
             context: Context,
             action: String,
             rootfsUrl: String? = null,
-            deleteHome: Boolean = false
+            deleteHome: Boolean = false,
+            fix: Boolean = false
         ) {
             val intent = Intent(context, ProotService::class.java).setAction(action)
             if (rootfsUrl != null) intent.putExtra(EXTRA_ROOTFS_URL, rootfsUrl)
             if (deleteHome) intent.putExtra(EXTRA_DELETE_HOME, true)
+            if (fix) intent.putExtra(EXTRA_FIX, true)
             ContextCompat.startForegroundService(context, intent)
         }
     }

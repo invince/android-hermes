@@ -43,9 +43,9 @@ object RootfsManager {
      * verify. Idempotent: already-completed stages are skipped.
      */
     fun setup(context: Context, rootfsUrl: String) {
-        SetupState.phase(SetupState.Phase.CHECKING, "申请 root 权限…")
+        SetupState.phase(SetupState.Phase.CHECKING, "Requesting root…")
         if (!RootShell.isRootAvailable()) {
-            throw IllegalStateException("未获得 root：请授予 su 权限（Magisk/超级用户）")
+            throw IllegalStateException("No root access: grant su permission (Magisk/superuser)")
         }
 
         ensureBaseDirs()
@@ -53,61 +53,88 @@ object RootfsManager {
         installScripts(context)
 
         if (!rootfsReady()) {
-            SetupState.phase(SetupState.Phase.DOWNLOADING, "准备 rootfs…")
+            SetupState.phase(SetupState.Phase.DOWNLOADING, "Preparing rootfs…")
             val archive = stagedArchive(context).takeIf { it.isFile && it.length() > 0 }
                 ?: downloadRootfs(context, rootfsUrl)
             val compression = detectCompression(archive)
-            SetupState.phase(SetupState.Phase.EXTRACTING, "解压 rootfs（$compression）…", -1)
+            SetupState.phase(SetupState.Phase.EXTRACTING, "Extracting rootfs ($compression)…", -1)
             extractRootfs(archive, compression)
             writeRootfsDefaults()
             archive.delete()
             mark(Constants.ROOTFS_MARKER)
         } else {
-            SetupState.appendLog("rootfs 已存在，跳过解压")
+            SetupState.appendLog("rootfs already present, skipping extraction")
         }
 
         if (!hermesReady()) {
-            SetupState.phase(SetupState.Phase.INSTALLING, "安装 Hermes（apt + install.sh）…", -1)
+            SetupState.phase(SetupState.Phase.INSTALLING, "Installing Hermes (apt + install.sh)…", -1)
             val rc = runScriptStreaming(scriptPath(Constants.SCRIPT_INSTALL))
-            if (rc != 0) throw IllegalStateException("Hermes 安装脚本退出码 $rc")
+            if (rc != 0) throw IllegalStateException("Hermes install script exited with code $rc")
 
-            SetupState.phase(SetupState.Phase.VERIFYING, "校验 Hermes…", -1)
-            if (!verifyHermes()) throw IllegalStateException("hermes --version 校验失败")
+            SetupState.phase(SetupState.Phase.VERIFYING, "Verifying Hermes…", -1)
+            if (!verifyHermes()) throw IllegalStateException("hermes --version check failed")
             mark(Constants.HERMES_MARKER)
         } else {
-            SetupState.appendLog("Hermes 已安装，跳过")
+            SetupState.appendLog("Hermes already installed, skipping")
         }
 
         if (!webuiReady()) {
             installWebui(context)
         } else {
-            SetupState.appendLog("Hermes WebUI 已安装，跳过")
+            SetupState.appendLog("Hermes WebUI already installed, skipping")
         }
+    }
+
+    /**
+     * Runs `hermes doctor` (optionally `--fix`) inside proot and streams the
+     * report into the setup log so it can be read from the app panel.
+     */
+    fun runDoctor(context: Context, fix: Boolean) {
+        if (!RootShell.isRootAvailable()) {
+            throw IllegalStateException("No root access: grant su permission (Magisk/superuser)")
+        }
+        ensureBaseDirs()
+        installScripts(context)
+
+        SetupState.phase(
+            SetupState.Phase.VERIFYING,
+            if (fix) "Running hermes doctor --fix…" else "Running hermes doctor…",
+            -1
+        )
+        val rc = runScriptStreaming(
+            scriptPath(Constants.SCRIPT_DOCTOR),
+            if (fix) listOf("--fix") else emptyList()
+        )
+        SetupState.appendLog("doctor exit code $rc")
+        SetupState.phase(
+            SetupState.Phase.IDLE,
+            if (fix) "Repair complete (doctor exit code $rc)" else "Diagnosis complete (doctor exit code $rc)"
+        )
     }
 
     /** Re-runs the official installer to upgrade the Hermes agent in place. */
     fun updateHermes(context: Context) {
         if (!RootShell.isRootAvailable()) {
-            throw IllegalStateException("未获得 root：请授予 su 权限（Magisk/超级用户）")
+            throw IllegalStateException("No root access: grant su permission (Magisk/superuser)")
         }
         ensureBaseDirs()
         installProotAssets(context)
         installScripts(context)
 
-        SetupState.phase(SetupState.Phase.INSTALLING, "更新 Hermes（install.sh）…", -1)
+        SetupState.phase(SetupState.Phase.INSTALLING, "Updating Hermes (install.sh)…", -1)
         val rc = runScriptStreaming(scriptPath(Constants.SCRIPT_INSTALL))
-        if (rc != 0) throw IllegalStateException("Hermes 更新脚本退出码 $rc")
+        if (rc != 0) throw IllegalStateException("Hermes update script exited with code $rc")
 
-        SetupState.phase(SetupState.Phase.VERIFYING, "校验 Hermes…", -1)
-        if (!verifyHermes()) throw IllegalStateException("hermes --version 校验失败")
+        SetupState.phase(SetupState.Phase.VERIFYING, "Verifying Hermes…", -1)
+        if (!verifyHermes()) throw IllegalStateException("hermes --version check failed")
         mark(Constants.HERMES_MARKER)
-        SetupState.appendLog("Hermes 已更新")
+        SetupState.appendLog("Hermes updated")
     }
 
     /** Re-downloads the configured WebUI tarball and replaces the installed copy. */
     fun updateWebui(context: Context) {
         if (!RootShell.isRootAvailable()) {
-            throw IllegalStateException("未获得 root：请授予 su 权限（Magisk/超级用户）")
+            throw IllegalStateException("No root access: grant su permission (Magisk/superuser)")
         }
         ensureBaseDirs()
         installScripts(context)
@@ -141,7 +168,7 @@ object RootfsManager {
             append("[ -e ${Constants.ROOTFS_DIR} ] && { sleep 1; rm -rf $quoted; }; echo done")
         }
         val r = RootShell.exec(cmd, 180_000)
-        if (!r.output.contains("done")) throw IllegalStateException("卸载失败: ${r.output.takeLast(300)}")
+        if (!r.output.contains("done")) throw IllegalStateException("Uninstall failed: ${r.output.takeLast(300)}")
 
         val files = context.filesDir
         listOf(
@@ -163,7 +190,7 @@ object RootfsManager {
             "${Constants.HERMES_HOME}/logs", "${Constants.HERMES_HOME}/shots"
         ).joinToString(" ") { ShellUtils.shellQuote(it) }
         val r = RootShell.exec("mkdir -p $cmd && chmod 755 ${Constants.BASE_DIR}")
-        if (!r.ok) throw IllegalStateException("创建 ${Constants.BASE_DIR} 失败: ${r.output}")
+        if (!r.ok) throw IllegalStateException("Failed to create ${Constants.BASE_DIR}: ${r.output}")
         // Best effort: match the SELinux label under which the tested proot
         // setup ran (/data/local/tmp is shell_data_file). Ignored if chcon is
         // unavailable or denied.
@@ -190,7 +217,7 @@ object RootfsManager {
             append("echo installed")
         }
         val r = RootShell.exec(cmd)
-        if (!r.output.contains("installed")) throw IllegalStateException("部署 proot 失败: ${r.output}")
+        if (!r.output.contains("installed")) throw IllegalStateException("Failed to deploy proot: ${r.output}")
         stage.deleteRecursively()
     }
 
@@ -198,7 +225,8 @@ object RootfsManager {
         val stage = File(context.filesDir, "scripts-stage").apply { mkdirs() }
         val names = listOf(
             Constants.SCRIPT_RUN, Constants.SCRIPT_INSTALL,
-            Constants.SCRIPT_VERIFY, Constants.SCRIPT_WEBUI
+            Constants.SCRIPT_VERIFY, Constants.SCRIPT_WEBUI,
+            Constants.SCRIPT_DOCTOR
         )
         for (name in names) {
             val hermesUrl = context.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
@@ -227,7 +255,7 @@ object RootfsManager {
             append("echo installed")
         }
         val r = RootShell.exec(cmd)
-        if (!r.output.contains("installed")) throw IllegalStateException("部署脚本失败: ${r.output}")
+        if (!r.output.contains("installed")) throw IllegalStateException("Failed to deploy scripts: ${r.output}")
         stage.deleteRecursively()
         File(context.filesDir, "skills-stage").deleteRecursively()
     }
@@ -241,16 +269,16 @@ object RootfsManager {
     /** Copy a user-picked rootfs archive into the staging area. */
     fun importRootfsFromUri(context: Context, uri: Uri) {
         val target = stagedArchive(context)
-        SetupState.phase(SetupState.Phase.DOWNLOADING, "导入本地 rootfs…", 0)
+        SetupState.phase(SetupState.Phase.DOWNLOADING, "Importing local rootfs…", 0)
         context.contentResolver.openInputStream(uri)?.use { input ->
             target.outputStream().use { output -> input.copyTo(output) }
-        } ?: throw IOException("无法打开所选文件")
-        if (target.length() == 0L) throw IOException("所选文件为空")
-        SetupState.appendLog("已导入 ${target.length() / 1_048_576} MB")
+        } ?: throw IOException("Cannot open the selected file")
+        if (target.length() == 0L) throw IOException("The selected file is empty")
+        SetupState.appendLog("Imported ${target.length() / 1_048_576} MB")
     }
 
     private fun downloadRootfs(context: Context, url: String): File {
-        if (url.isBlank()) throw IllegalStateException("rootfs 地址为空，请填写 URL 或选择本地包")
+        if (url.isBlank()) throw IllegalStateException("rootfs URL is empty; enter a URL or choose a local package")
         val target = stagedArchive(context)
         val part = File(context.filesDir, "${Constants.ROOTFS_ARCHIVE}.part")
 
@@ -265,7 +293,7 @@ object RootfsManager {
         connection.connect()
 
         val code = connection.responseCode
-        if (code !in 200..299) throw IOException("下载失败 HTTP $code")
+        if (code !in 200..299) throw IOException("Download failed: HTTP $code")
         val append = code == HttpURLConnection.HTTP_PARTIAL
         if (!append) downloaded = 0L
 
@@ -273,7 +301,7 @@ object RootfsManager {
         val total = if (remaining > 0) downloaded + remaining else -1L
         ensureFreeSpace(context.filesDir, if (total > 0) total else 2L * 1024 * 1024 * 1024)
 
-        SetupState.phase(SetupState.Phase.DOWNLOADING, "下载 rootfs…", if (total > 0) 0 else -1)
+        SetupState.phase(SetupState.Phase.DOWNLOADING, "Downloading rootfs…", if (total > 0) 0 else -1)
         connection.inputStream.use { input ->
             java.io.FileOutputStream(part, append).use { output ->
                 val buffer = ByteArray(1 shl 16)
@@ -325,7 +353,7 @@ object RootfsManager {
         val cmd = "rm -rf ${Constants.ROOTFS_DIR} && mkdir -p ${Constants.ROOTFS_DIR} && " +
             "tar x${flag}f ${ShellUtils.shellQuote(archive.absolutePath)} -C ${Constants.ROOTFS_DIR}"
         val r = RootShell.exec(cmd, 30 * 60_000)
-        if (!r.ok) throw IllegalStateException("解压失败: ${r.output.takeLast(500)}")
+        if (!r.ok) throw IllegalStateException("Extraction failed: ${r.output.takeLast(500)}")
     }
 
     private fun writeRootfsDefaults() {
@@ -348,8 +376,12 @@ object RootfsManager {
     private fun scriptPath(name: String) = "${Constants.SCRIPTS_DIR}/$name"
 
     /** Runs a script with su, streaming output to the log; returns exit code. */
-    private fun runScriptStreaming(scriptPath: String): Int {
-        val process = ProcessBuilder("su", "-c", "sh ${ShellUtils.shellQuote(scriptPath)}")
+    private fun runScriptStreaming(scriptPath: String, args: List<String> = emptyList()): Int {
+        val cmd = buildString {
+            append("sh ").append(ShellUtils.shellQuote(scriptPath))
+            for (arg in args) append(' ').append(ShellUtils.shellQuote(arg))
+        }
+        val process = ProcessBuilder("su", "-c", cmd)
             .redirectErrorStream(true)
             .start()
         process.inputStream.bufferedReader().forEachLine { line ->
@@ -375,7 +407,7 @@ object RootfsManager {
             val url = context.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
                 .getString(Constants.PREF_WEBUI_URL, Constants.DEFAULT_WEBUI_URL)
                 ?.ifBlank { Constants.DEFAULT_WEBUI_URL } ?: Constants.DEFAULT_WEBUI_URL
-            SetupState.phase(SetupState.Phase.DOWNLOADING, "下载 Hermes WebUI…", 0)
+            SetupState.phase(SetupState.Phase.DOWNLOADING, "Downloading Hermes WebUI…", 0)
             downloadFile(url, archive, "Hermes WebUI", 300L * 1024 * 1024)
 
             val staged = "${Constants.TMP_DIR}/webui.tar.gz"
@@ -384,20 +416,20 @@ object RootfsManager {
                     "$staged && echo ok",
                 120_000
             )
-            if (!cp.output.contains("ok")) throw IOException("复制 WebUI 包失败: ${cp.output}")
+            if (!cp.output.contains("ok")) throw IOException("Failed to copy WebUI package: ${cp.output}")
             archive.delete()
 
-            SetupState.phase(SetupState.Phase.INSTALLING, "安装 Hermes WebUI…", -1)
+            SetupState.phase(SetupState.Phase.INSTALLING, "Installing Hermes WebUI…", -1)
             val rc = runScriptStreaming(scriptPath(Constants.SCRIPT_WEBUI))
             RootShell.exec("rm -f $staged")
             if (rc != 0 || !webuiReady()) {
-                throw IOException("WebUI 安装失败（退出码 $rc），请点击重试")
+                throw IOException("WebUI install failed (exit code $rc). Tap retry.")
             }
-            SetupState.appendLog("Hermes WebUI 已安装")
+            SetupState.appendLog("Hermes WebUI installed")
         } catch (t: Throwable) {
-            SetupState.appendLog("WebUI 安装失败：${t.message}")
+            SetupState.appendLog("WebUI install failed: ${t.message}")
             Log.w(TAG, "webui install failed", t)
-            throw if (t is IOException) t else IOException("WebUI 安装失败：${t.message}", t)
+            throw if (t is IOException) t else IOException("WebUI install failed: ${t.message}", t)
         }
     }
 
@@ -412,10 +444,10 @@ object RootfsManager {
         }
         connection.connect()
         val code = connection.responseCode
-        if (code !in 200..299) throw IOException("$label 下载失败 HTTP $code")
+        if (code !in 200..299) throw IOException("$label download failed: HTTP $code")
         val total = connection.contentLengthLong
         ensureFreeSpace(target.parentFile, minFreeBytes)
-        SetupState.phase(SetupState.Phase.DOWNLOADING, "下载 $label…", if (total > 0) 0 else -1)
+        SetupState.phase(SetupState.Phase.DOWNLOADING, "Downloading $label…", if (total > 0) 0 else -1)
         var downloaded = 0L
         connection.inputStream.use { input ->
             java.io.FileOutputStream(part).use { output ->
@@ -441,7 +473,7 @@ object RootfsManager {
             part.copyTo(target, overwrite = true)
             part.delete()
         }
-        SetupState.appendLog("$label 下载完成（${target.length() / 1_048_576} MB）")
+        SetupState.appendLog("$label download complete (${target.length() / 1_048_576} MB)")
     }
 
     private fun verifyHermes(): Boolean {
@@ -463,7 +495,7 @@ object RootfsManager {
         val stat = StatFs(dir.absolutePath)
         val available = stat.availableBytes
         if (available < requiredBytes) {
-            throw IOException("空间不足：需要约 ${requiredBytes / 1_048_576} MB，可用 ${available / 1_048_576} MB")
+            throw IOException("Not enough space: need about ${requiredBytes / 1_048_576} MB, available ${available / 1_048_576} MB")
         }
     }
 
@@ -471,10 +503,10 @@ object RootfsManager {
         val expected = context.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
             .getString("rootfs_sha256", null)?.trim().orEmpty()
         if (expected.isEmpty()) {
-            SetupState.appendLog("未配置 sha256，跳过校验")
+            SetupState.appendLog("No sha256 configured, skipping check")
             return
         }
-        SetupState.phase(SetupState.Phase.DOWNLOADING, "校验 sha256…", -1)
+        SetupState.phase(SetupState.Phase.DOWNLOADING, "Verifying sha256…", -1)
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
             val buffer = ByteArray(1 shl 16)
@@ -487,9 +519,9 @@ object RootfsManager {
         val actual = digest.digest().joinToString("") { "%02x".format(it) }
         if (!actual.equals(expected, ignoreCase = true)) {
             file.delete()
-            throw IOException("sha256 不匹配：$actual != $expected")
+            throw IOException("sha256 mismatch: $actual != $expected")
         }
-        SetupState.appendLog("sha256 校验通过")
+        SetupState.appendLog("sha256 check passed")
     }
 
     private fun copyAsset(context: Context, assetPath: String, dest: File) {
